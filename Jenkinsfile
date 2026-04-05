@@ -6,7 +6,7 @@ pipeline {
         OCIR_REGISTRY = 'yny.ocir.io'
         OCIR_NAMESPACE = 'axlgn2n9ijoa'
         IMAGE_NAME = 'gakhalmo/back'
-        GITOPS_REPO = 'https://github.com/gakhalmo/gitops.git'
+        GITOPS_REPO = 'https://github.com/leestana01/gitops.git'
         GITOPS_CREDENTIALS = 'github-credentials'
     }
 
@@ -55,22 +55,14 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${GITOPS_CREDENTIALS}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                     sh """
-                        if ! command -v kustomize &> /dev/null; then
-                            curl -sLo /tmp/kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.3.0/kustomize_v5.3.0_linux_arm64.tar.gz
-                            tar -xzf /tmp/kustomize.tar.gz -C /tmp
-                            chmod +x /tmp/kustomize
-                            export PATH="/tmp:\$PATH"
-                        fi
+                        git clone https://\${GIT_USER}:\${GIT_TOKEN}@github.com/leestana01/gitops.git gitops-repo
+                        cd gitops-repo
 
-                        git clone https://\${GIT_USER}:\${GIT_TOKEN}@github.com/gakhalmo/gitops.git gitops-repo
-                        cd gitops-repo/gakhalmo-back/overlay/${env.TARGET_ENV}
+                        sed -i "s|image: ${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}:.*|image: ${env.FULL_IMAGE}|" apps/gakhalmo-back/deployment.yaml
 
-                        kustomize edit set image ${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}=${env.FULL_IMAGE}
-
-                        cd ../../..
                         git config user.email "jenkins@klr.kr"
                         git config user.name "Jenkins CI"
-                        git add .
+                        git add apps/gakhalmo-back/deployment.yaml
                         git commit -m "chore: Update ${IMAGE_NAME} to ${env.IMAGE_TAG}" || echo "No changes to commit"
                         git push origin main
                     """
