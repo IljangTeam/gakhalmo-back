@@ -17,10 +17,10 @@ pipeline {
                 script {
                     if (env.BRANCH_NAME == 'main') {
                         env.TARGET_ENV = 'prod'
-                        env.GITOPS_DEPLOYMENT_PATH = 'apps/gakhalmo-back/base/deployment.yaml'
+                        env.GITOPS_KUSTOMIZE_DIR = 'apps/gakhalmo-back/kustomize/prod'
                     } else if (env.BRANCH_NAME == 'develop') {
                         env.TARGET_ENV = 'dev'
-                        env.GITOPS_DEPLOYMENT_PATH = 'apps/gakhalmo-back-dev/base/deployment.yaml'
+                        env.GITOPS_KUSTOMIZE_DIR = 'apps/gakhalmo-back/kustomize/dev'
                     } else {
                         error "Branch ${env.BRANCH_NAME} is not configured for deployment"
                     }
@@ -60,11 +60,11 @@ pipeline {
                         git clone https://\${GIT_USER}:\${GIT_TOKEN}@github.com/leestana01/gitops.git gitops-repo
                         cd gitops-repo
 
-                        sed -i "s|image: ${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}:.*|image: ${env.FULL_IMAGE}|" ${env.GITOPS_DEPLOYMENT_PATH}
+                        sed -i "s|newTag:.*|newTag: ${env.IMAGE_TAG}|" ${env.GITOPS_KUSTOMIZE_DIR}/kustomization.yaml
 
                         git config user.email "jenkins@klr.kr"
                         git config user.name "Jenkins CI"
-                        git add ${env.GITOPS_DEPLOYMENT_PATH}
+                        git add ${env.GITOPS_KUSTOMIZE_DIR}/kustomization.yaml
                         git commit -m "chore: Update ${IMAGE_NAME} to ${env.IMAGE_TAG}" || echo "No changes to commit"
                         git push origin HEAD:main
                     """
