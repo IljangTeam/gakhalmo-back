@@ -64,7 +64,7 @@ pipeline {
                         git config user.name "Jenkins CI"
                         git add apps/gakhalmo-back/deployment.yaml
                         git commit -m "chore: Update ${IMAGE_NAME} to ${env.IMAGE_TAG}" || echo "No changes to commit"
-                        git push origin main
+                        git push origin HEAD:main
                     """
                 }
             }
