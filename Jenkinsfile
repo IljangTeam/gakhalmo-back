@@ -37,9 +37,9 @@ pipeline {
                 }
             }
             steps {
-                container('kaniko') {
+                container('jnlp') {
                     sh """
-                        /kaniko/executor \\
+                        /tools/kubectl exec -n jenkins \$(cat /etc/hostname) -c kaniko -- /kaniko/executor \\
                             --context=dir://\${WORKSPACE} \\
                             --dockerfile=\${WORKSPACE}/Dockerfile \\
                             --customPlatform=linux/arm64 \\
