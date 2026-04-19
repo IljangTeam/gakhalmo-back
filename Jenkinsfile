@@ -93,13 +93,33 @@ spec:
         stage('Build & Push Docker Image') {
             agent {
                 kubernetes {
-                    label 'kaniko'
+                    label 'gakhalmo-back-kaniko'
+                    yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:debug
+      command: ['/busybox/cat']
+      tty: true
+      volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker
+  volumes:
+    - name: docker-config
+      secret:
+        secretName: ocir-kaniko-secret
+"""
                 }
             }
             steps {
-                container('jnlp') {
+                // kaniko 이미지는 scratch 베이스라 /bin/sh 가 없다. busybox sh 로 명시.
+                // 기존 '/tools/kubectl exec' 트릭은 pod template 의 tools 사이드카에
+                // 의존했으나 Jenkins 업그레이드 후 사이드카가 리셋됨 → container step 직접 사용.
+                container(name: 'kaniko', shell: '/busybox/sh') {
                     sh """
-                        /tools/kubectl exec -n jenkins \$(cat /etc/hostname) -c kaniko -- /kaniko/executor \\
+                        /kaniko/executor \\
                             --context=dir://\${WORKSPACE} \\
                             --dockerfile=\${WORKSPACE}/Dockerfile \\
                             --customPlatform=linux/arm64 \\
@@ -116,11 +136,21 @@ spec:
         stage('Update GitOps Repository') {
             agent {
                 kubernetes {
-                    label 'kaniko'
+                    label 'gakhalmo-back-gitops'
+                    yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: git
+      image: alpine/git:latest
+      command: ['cat']
+      tty: true
+"""
                 }
             }
             steps {
-                container('jnlp') {
+                container('git') {
                     withCredentials([usernamePassword(credentialsId: "${GITOPS_CREDENTIALS}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                         // Token 은 http.extraheader 를 통해 base64 로 전달 — clone URL,
                         // git reflog, Jenkins console 어디에도 평문 노출되지 않는다.
