@@ -100,7 +100,7 @@ kind: Pod
 spec:
   containers:
     - name: tools
-      image: bitnami/kubectl:latest
+      image: docker.io/bitnami/kubectl:latest
       command: ['cat']
       tty: true
     - name: kaniko
