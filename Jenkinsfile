@@ -151,7 +151,7 @@ kind: Pod
 spec:
   containers:
     - name: git
-      image: alpine/git:latest
+      image: docker.io/alpine/git:latest
       command: ['cat']
       tty: true
 """
