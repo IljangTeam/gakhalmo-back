@@ -17,8 +17,6 @@ pipeline {
         disableConcurrentBuilds()
         timeout(time: 30, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
-        timestamps()
-        ansiColor('xterm')
     }
 
     environment {
@@ -30,32 +28,6 @@ pipeline {
     }
 
     stages {
-        stage('Determine Environment') {
-            agent any
-            steps {
-                script {
-                    if (env.BRANCH_NAME == 'main') {
-                        env.TARGET_ENV = 'prod'
-                        env.GITOPS_KUSTOMIZE_DIR = 'apps/gakhalmo-back/overlays/prod'
-                    } else if (env.BRANCH_NAME == 'develop') {
-                        env.TARGET_ENV = 'dev'
-                        env.GITOPS_KUSTOMIZE_DIR = 'apps/gakhalmo-back/overlays/dev'
-                    } else {
-                        error "Branch ${env.BRANCH_NAME} is not configured for deployment"
-                    }
-                    env.IMAGE_TAG = "${env.TARGET_ENV}-${env.BUILD_NUMBER}"
-                    env.FULL_IMAGE = "${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}:${env.IMAGE_TAG}"
-                    // env 별 cache repo 를 완전히 분리 — NFS 공유 환경에서 dev/prod 가
-                    // 서로의 kaniko cache 를 덮어쓰지 않도록 한다.
-                    env.KANIKO_CACHE_REPO = "${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}/cache/${env.TARGET_ENV}"
-
-                    echo "TARGET_ENV=${env.TARGET_ENV}"
-                    echo "IMAGE_TAG=${env.IMAGE_TAG}"
-                    echo "KANIKO_CACHE_REPO=${env.KANIKO_CACHE_REPO}"
-                }
-            }
-        }
-
         stage('Lint & Test') {
             agent {
                 kubernetes {
@@ -80,9 +52,36 @@ spec:
                 }
             }
             steps {
+                // env 결정은 별도 stage(agent any)로 분리하면 k8s 기반 Jenkins 에
+                // 매칭 executor 가 없어 hang 된다. pod 가 이미 뜬 현 stage 안에서
+                // Groovy script 로 처리 — env 변수는 파이프라인 전역에 전파된다.
+                script {
+                    if (env.BRANCH_NAME == 'main') {
+                        env.TARGET_ENV = 'prod'
+                        env.GITOPS_KUSTOMIZE_DIR = 'apps/gakhalmo-back/overlays/prod'
+                    } else if (env.BRANCH_NAME == 'develop') {
+                        env.TARGET_ENV = 'dev'
+                        env.GITOPS_KUSTOMIZE_DIR = 'apps/gakhalmo-back/overlays/dev'
+                    } else {
+                        error "Branch ${env.BRANCH_NAME} is not configured for deployment"
+                    }
+                    env.IMAGE_TAG = "${env.TARGET_ENV}-${env.BUILD_NUMBER}"
+                    env.FULL_IMAGE = "${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}:${env.IMAGE_TAG}"
+                    // env 별 cache repo 를 완전히 분리 — NFS 공유 환경에서 dev/prod 가
+                    // 서로의 kaniko cache 를 덮어쓰지 않도록 한다.
+                    env.KANIKO_CACHE_REPO = "${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}/cache/${env.TARGET_ENV}"
+
+                    echo "TARGET_ENV=${env.TARGET_ENV}"
+                    echo "IMAGE_TAG=${env.IMAGE_TAG}"
+                    echo "KANIKO_CACHE_REPO=${env.KANIKO_CACHE_REPO}"
+                }
                 container('python') {
                     sh '''
                         set -eu
+                        # asyncmy 0.2.11 은 Python 3.14 aarch64 휠을 제공하지 않아 sdist 빌드 폴백 →
+                        # slim 이미지에 gcc 가 없어 실패한다. 빌드 툴체인만 최소 설치.
+                        apt-get update -qq
+                        apt-get install -y --no-install-recommends gcc libc6-dev
                         uv sync --frozen
                         uv run ruff check app tests alembic
                         uv run pytest -q
@@ -94,13 +93,41 @@ spec:
         stage('Build & Push Docker Image') {
             agent {
                 kubernetes {
-                    label 'kaniko'
+                    label 'gakhalmo-back-kaniko'
+                    yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: tools
+      image: docker.io/bitnami/kubectl:latest
+      command: ['cat']
+      tty: true
+      securityContext:
+        runAsUser: 0
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:debug
+      command: ['/busybox/cat']
+      tty: true
+      volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker
+  volumes:
+    - name: docker-config
+      secret:
+        secretName: ocir-kaniko-secret
+"""
                 }
             }
             steps {
-                container('jnlp') {
+                // kaniko:debug 이미지의 /busybox/sh 는 Jenkins durable-task 의
+                // 프로세스 종료 감지와 불안정하게 맞물려 push 후 무한 대기(exit -1)를 일으킨다.
+                // tools 사이드카(bitnami/kubectl, bash 포함) 에서 kubectl exec 로
+                // kaniko 컨테이너에 명령만 주입 — Jenkins sh 는 tools 컨테이너에서 실행되므로
+                // durable-task 가 정상적으로 종료를 감지한다.
+                container('tools') {
                     sh """
-                        /tools/kubectl exec -n jenkins \$(cat /etc/hostname) -c kaniko -- /kaniko/executor \\
+                        kubectl exec -n jenkins \$(hostname) -c kaniko -- /kaniko/executor \\
                             --context=dir://\${WORKSPACE} \\
                             --dockerfile=\${WORKSPACE}/Dockerfile \\
                             --customPlatform=linux/arm64 \\
@@ -117,11 +144,21 @@ spec:
         stage('Update GitOps Repository') {
             agent {
                 kubernetes {
-                    label 'kaniko'
+                    label 'gakhalmo-back-gitops'
+                    yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: git
+      image: docker.io/alpine/git:latest
+      command: ['cat']
+      tty: true
+"""
                 }
             }
             steps {
-                container('jnlp') {
+                container('git') {
                     withCredentials([usernamePassword(credentialsId: "${GITOPS_CREDENTIALS}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                         // Token 은 http.extraheader 를 통해 base64 로 전달 — clone URL,
                         // git reflog, Jenkins console 어디에도 평문 노출되지 않는다.
