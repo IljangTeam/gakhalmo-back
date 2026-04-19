@@ -99,6 +99,10 @@ apiVersion: v1
 kind: Pod
 spec:
   containers:
+    - name: tools
+      image: bitnami/kubectl:latest
+      command: ['cat']
+      tty: true
     - name: kaniko
       image: gcr.io/kaniko-project/executor:debug
       command: ['/busybox/cat']
@@ -114,12 +118,14 @@ spec:
                 }
             }
             steps {
-                // kaniko 이미지는 scratch 베이스라 /bin/sh 가 없다. busybox sh 로 명시.
-                // 기존 '/tools/kubectl exec' 트릭은 pod template 의 tools 사이드카에
-                // 의존했으나 Jenkins 업그레이드 후 사이드카가 리셋됨 → container step 직접 사용.
-                container(name: 'kaniko', shell: '/busybox/sh') {
+                // kaniko:debug 이미지의 /busybox/sh 는 Jenkins durable-task 의
+                // 프로세스 종료 감지와 불안정하게 맞물려 push 후 무한 대기(exit -1)를 일으킨다.
+                // tools 사이드카(bitnami/kubectl, bash 포함) 에서 kubectl exec 로
+                // kaniko 컨테이너에 명령만 주입 — Jenkins sh 는 tools 컨테이너에서 실행되므로
+                // durable-task 가 정상적으로 종료를 감지한다.
+                container('tools') {
                     sh """
-                        /kaniko/executor \\
+                        kubectl exec -n jenkins \$(hostname) -c kaniko -- /kaniko/executor \\
                             --context=dir://\${WORKSPACE} \\
                             --dockerfile=\${WORKSPACE}/Dockerfile \\
                             --customPlatform=linux/arm64 \\
