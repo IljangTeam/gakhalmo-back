@@ -28,32 +28,6 @@ pipeline {
     }
 
     stages {
-        stage('Determine Environment') {
-            agent any
-            steps {
-                script {
-                    if (env.BRANCH_NAME == 'main') {
-                        env.TARGET_ENV = 'prod'
-                        env.GITOPS_KUSTOMIZE_DIR = 'apps/gakhalmo-back/overlays/prod'
-                    } else if (env.BRANCH_NAME == 'develop') {
-                        env.TARGET_ENV = 'dev'
-                        env.GITOPS_KUSTOMIZE_DIR = 'apps/gakhalmo-back/overlays/dev'
-                    } else {
-                        error "Branch ${env.BRANCH_NAME} is not configured for deployment"
-                    }
-                    env.IMAGE_TAG = "${env.TARGET_ENV}-${env.BUILD_NUMBER}"
-                    env.FULL_IMAGE = "${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}:${env.IMAGE_TAG}"
-                    // env 별 cache repo 를 완전히 분리 — NFS 공유 환경에서 dev/prod 가
-                    // 서로의 kaniko cache 를 덮어쓰지 않도록 한다.
-                    env.KANIKO_CACHE_REPO = "${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}/cache/${env.TARGET_ENV}"
-
-                    echo "TARGET_ENV=${env.TARGET_ENV}"
-                    echo "IMAGE_TAG=${env.IMAGE_TAG}"
-                    echo "KANIKO_CACHE_REPO=${env.KANIKO_CACHE_REPO}"
-                }
-            }
-        }
-
         stage('Lint & Test') {
             agent {
                 kubernetes {
@@ -78,6 +52,29 @@ spec:
                 }
             }
             steps {
+                // env 결정은 별도 stage(agent any)로 분리하면 k8s 기반 Jenkins 에
+                // 매칭 executor 가 없어 hang 된다. pod 가 이미 뜬 현 stage 안에서
+                // Groovy script 로 처리 — env 변수는 파이프라인 전역에 전파된다.
+                script {
+                    if (env.BRANCH_NAME == 'main') {
+                        env.TARGET_ENV = 'prod'
+                        env.GITOPS_KUSTOMIZE_DIR = 'apps/gakhalmo-back/overlays/prod'
+                    } else if (env.BRANCH_NAME == 'develop') {
+                        env.TARGET_ENV = 'dev'
+                        env.GITOPS_KUSTOMIZE_DIR = 'apps/gakhalmo-back/overlays/dev'
+                    } else {
+                        error "Branch ${env.BRANCH_NAME} is not configured for deployment"
+                    }
+                    env.IMAGE_TAG = "${env.TARGET_ENV}-${env.BUILD_NUMBER}"
+                    env.FULL_IMAGE = "${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}:${env.IMAGE_TAG}"
+                    // env 별 cache repo 를 완전히 분리 — NFS 공유 환경에서 dev/prod 가
+                    // 서로의 kaniko cache 를 덮어쓰지 않도록 한다.
+                    env.KANIKO_CACHE_REPO = "${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}/cache/${env.TARGET_ENV}"
+
+                    echo "TARGET_ENV=${env.TARGET_ENV}"
+                    echo "IMAGE_TAG=${env.IMAGE_TAG}"
+                    echo "KANIKO_CACHE_REPO=${env.KANIKO_CACHE_REPO}"
+                }
                 container('python') {
                     sh '''
                         set -eu
