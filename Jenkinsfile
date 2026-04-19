@@ -78,6 +78,10 @@ spec:
                 container('python') {
                     sh '''
                         set -eu
+                        # asyncmy 0.2.11 은 Python 3.14 aarch64 휠을 제공하지 않아 sdist 빌드 폴백 →
+                        # slim 이미지에 gcc 가 없어 실패한다. 빌드 툴체인만 최소 설치.
+                        apt-get update -qq
+                        apt-get install -y --no-install-recommends gcc libc6-dev
                         uv sync --frozen
                         uv run ruff check app tests alembic
                         uv run pytest -q
