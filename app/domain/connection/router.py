@@ -135,4 +135,4 @@ async def count_connections(
 ) -> dict[str, int]:
     svc = ConnectionService(session)
     n = await svc.count(user_id)
-    return {"user_id_hash": user_id[:8], "count": n}
+    return {"count": n}
