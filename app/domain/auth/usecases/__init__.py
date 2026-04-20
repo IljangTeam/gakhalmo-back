@@ -6,6 +6,7 @@ from app.domain.auth.usecases.google_login import GoogleLoginUseCaseDep
 from app.domain.auth.usecases.login_local import LoginLocalUseCaseDep
 from app.domain.auth.usecases.refresh_token import RefreshTokenUseCaseDep
 from app.domain.auth.usecases.register_local import RegisterLocalUseCaseDep
+from app.domain.auth.usecases.update_me import UpdateMeUseCaseDep
 
 __all__ = [
     "GetMeUseCaseDep",
@@ -14,4 +15,5 @@ __all__ = [
     "LoginLocalUseCaseDep",
     "RefreshTokenUseCaseDep",
     "RegisterLocalUseCaseDep",
+    "UpdateMeUseCaseDep",
 ]

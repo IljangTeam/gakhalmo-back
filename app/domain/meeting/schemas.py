@@ -17,6 +17,20 @@ from app.domain.regions.schemas import RegionSummary
 from app.domain.user.schemas import UserSummary
 
 
+class RecurrenceData(BaseModel):
+    """is_recurring=true 일 때 내부적으로 Series 를 만들기 위한 부가 정보.
+
+    `meeting_date` 를 Series.start_date 로, `meeting_time` 을 Series.meeting_time 으로
+    승격시키므로 여기에는 시리즈 고유 정보(주기/종료일) 만 담는다.
+    """
+
+    frequency: RecurrenceFrequency = Field(..., description="반복 주기")
+    end_date: date | None = Field(
+        None,
+        description="반복 종료일 (미지정 시 서버 기본 횟수 생성)",
+    )
+
+
 class MeetingBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255, description="모임 제목")
     mode: MeetingMode = Field(..., description="온/오프라인 구분")
@@ -32,10 +46,20 @@ class MeetingBase(BaseModel):
 
 
 class MeetingCreate(MeetingBase):
-    series_id: str | None = Field(None, description="소속 정기 모임 시리즈 ID")
+    """모임 생성 요청.
+
+    정기 모임(`is_recurring=true`)이면 `recurrence` 가 필수이며, 서버 내부에서
+    MeetingSeries 를 생성해 이 Meeting 을 첫 회차로 연결한다. 외부 API 로 Series 를
+    직접 다루지 않는다 (내부 리소스).
+    """
+
+    recurrence: RecurrenceData | None = Field(
+        None,
+        description="is_recurring=true 일 때 필수 (주기/종료일)",
+    )
 
     @model_validator(mode="after")
-    def _validate_offline_fields(self) -> "MeetingCreate":
+    def _validate(self) -> "MeetingCreate":
         if self.mode is MeetingMode.OFFLINE:
             if self.region_id is None:
                 raise ValueError("오프라인 모임은 지역(region_id)이 필요합니다.")
@@ -45,6 +69,21 @@ class MeetingCreate(MeetingBase):
             self.region_id = None
             self.location_name = None
             self.location_address = None
+
+        if self.is_recurring and self.recurrence is None:
+            raise ValueError(
+                "is_recurring=true 이면 recurrence(frequency/end_date) 가 필요합니다."
+            )
+        if not self.is_recurring and self.recurrence is not None:
+            raise ValueError(
+                "is_recurring=false 면 recurrence 는 지정할 수 없습니다."
+            )
+        if (
+            self.recurrence is not None
+            and self.recurrence.end_date is not None
+            and self.recurrence.end_date < self.meeting_date
+        ):
+            raise ValueError("recurrence.end_date 는 meeting_date 이후여야 합니다.")
         return self
 
 
@@ -59,7 +98,6 @@ class MeetingUpdate(BaseModel):
     goal: Goal | None = None
     max_participants: int | None = Field(None, ge=2, le=8)
     description: str | None = Field(None, max_length=2000)
-    is_recurring: bool | None = None
     status: MeetingStatus | None = None
 
 
@@ -100,6 +138,10 @@ class MeetingResponse(BaseModel):
     goal: Goal
     max_participants: int
     current_participants: int
+    is_full: bool = Field(
+        ...,
+        description="current_participants >= max_participants 여부 (파생 필드)",
+    )
     description: str | None
     is_recurring: bool
     status: MeetingStatus
@@ -113,77 +155,3 @@ class MeetingResponse(BaseModel):
 
 class MeetingDetailResponse(MeetingResponse):
     participants: list[MeetingParticipantResponse]
-
-
-# ========== MeetingSeries ==========
-
-
-class MeetingSeriesBase(BaseModel):
-    title: str = Field(..., min_length=1, max_length=255, description="시리즈 제목")
-    description: str | None = Field(None, max_length=2000)
-    mode: MeetingMode
-    region_id: int | None = None
-    location_name: str | None = Field(None, max_length=255)
-    location_address: str | None = Field(None, max_length=500)
-    goal: Goal
-    max_participants: int = Field(..., ge=2, le=8)
-    frequency: RecurrenceFrequency
-    start_date: date
-    end_date: date | None = None
-    meeting_time: time
-
-
-class MeetingSeriesCreateRequest(MeetingSeriesBase):
-    @model_validator(mode="after")
-    def _validate(self) -> "MeetingSeriesCreateRequest":
-        if self.mode is MeetingMode.OFFLINE:
-            if self.region_id is None:
-                raise ValueError("오프라인 시리즈는 지역(region_id)이 필요합니다.")
-            if not self.location_name:
-                raise ValueError("오프라인 시리즈는 장소(location_name)가 필요합니다.")
-        else:
-            self.region_id = None
-            self.location_name = None
-            self.location_address = None
-
-        if self.end_date is not None and self.end_date < self.start_date:
-            raise ValueError("종료일은 시작일 이후여야 합니다.")
-        return self
-
-
-class MeetingSeriesUpdateRequest(BaseModel):
-    title: str | None = Field(None, min_length=1, max_length=255)
-    description: str | None = Field(None, max_length=2000)
-    mode: MeetingMode | None = None
-    region_id: int | None = None
-    location_name: str | None = Field(None, max_length=255)
-    location_address: str | None = Field(None, max_length=500)
-    goal: Goal | None = None
-    max_participants: int | None = Field(None, ge=2, le=8)
-    frequency: RecurrenceFrequency | None = None
-    start_date: date | None = None
-    end_date: date | None = None
-    meeting_time: time | None = None
-    is_active: bool | None = None
-
-
-class MeetingSeriesResponse(BaseModel):
-    id: str
-    title: str
-    description: str | None
-    mode: MeetingMode
-    region: RegionSummary | None
-    location_name: str | None
-    location_address: str | None
-    goal: Goal
-    max_participants: int
-    frequency: RecurrenceFrequency
-    start_date: date
-    end_date: date | None
-    meeting_time: time
-    is_active: bool
-    host: UserSummary
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)

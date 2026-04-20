@@ -12,6 +12,7 @@ from app.domain.auth.schemas import (
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
+    UpdateMeRequest,
 )
 from app.domain.auth.usecases import (
     GetMeUseCaseDep,
@@ -20,6 +21,7 @@ from app.domain.auth.usecases import (
     LoginLocalUseCaseDep,
     RefreshTokenUseCaseDep,
     RegisterLocalUseCaseDep,
+    UpdateMeUseCaseDep,
 )
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -73,6 +75,20 @@ async def get_me(
     use_case: GetMeUseCaseDep,
 ) -> MeResponse:
     user = use_case.execute(current_user)
+    return MeResponse.model_validate(user)
+
+
+@router.patch(
+    "/me",
+    response_model=MeResponse,
+    summary="본인 프로필 수정 (name/bio/job/tags/profile_image)",
+)
+async def update_me(
+    data: UpdateMeRequest,
+    current_user: CurrentUserDep,
+    use_case: UpdateMeUseCaseDep,
+) -> MeResponse:
+    user = await use_case.execute(current_user, data)
     return MeResponse.model_validate(user)
 
 

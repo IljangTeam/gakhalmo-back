@@ -42,6 +42,19 @@ class GoogleCallbackQuery(BaseModel):
     state: str | None = Field(None, description="CSRF 방지용 state")
 
 
+class UpdateMeRequest(BaseModel):
+    """본인 프로필 수정 요청."""
+
+    name: str | None = Field(None, min_length=1, max_length=100)
+    profile_image: str | None = None
+    bio: str | None = Field(None, max_length=500)
+    job: str | None = Field(None, max_length=100)
+    tags: list[str] | None = Field(
+        None,
+        description="관심 태그 배열. None 이면 미변경, [] 이면 전체 제거",
+    )
+
+
 class MeResponse(BaseModel):
     """현재 인증된 사용자 정보."""
 
@@ -49,6 +62,9 @@ class MeResponse(BaseModel):
     email: EmailStr
     name: str
     profile_image: str | None = None
+    bio: str | None = None
+    job: str | None = None
+    tags: list[str] | None = None
     is_active: bool
 
     model_config = ConfigDict(from_attributes=True)

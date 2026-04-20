@@ -28,3 +28,24 @@ class RegionRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def get_by_full_name_prefixes(
+        self, prefixes: list[str]
+    ) -> list[Region]:
+        """주어진 full_name 접미사/전체 일치 각각에 대해 가장 상위 1건만 반환.
+
+        입력 순서를 유지하며 (프리셋 순서대로 노출), 매칭되지 않는 항목은 건너뛴다.
+        """
+        matched: list[Region] = []
+        for prefix in prefixes:
+            pattern = f"%{prefix}%"
+            row = await self.session.execute(
+                select(Region)
+                .where(Region.full_name.ilike(pattern))
+                .order_by(Region.full_name.asc())
+                .limit(1)
+            )
+            region = row.scalar_one_or_none()
+            if region is not None:
+                matched.append(region)
+        return matched

@@ -1,4 +1,9 @@
-"""Meeting API router."""
+"""Meeting API router.
+
+정기 모임(Series) 은 내부 리소스로 취급된다. 공개 엔드포인트는
+`POST /meetings/` 와 `GET /meetings/{id}` 뿐이며, 서버가 `is_recurring=true`
+일 때 MeetingSeries 를 자동으로 생성/연결한다.
+"""
 
 from __future__ import annotations
 
@@ -8,41 +13,34 @@ from fastapi import APIRouter, Query, status
 
 from app.domain.auth.dependencies import CurrentUserDep
 from app.domain.meeting.enums import Goal, MeetingMode, MeetingStatus
-from app.domain.meeting.models import Meeting, MeetingSeries
+from app.domain.meeting.models import Meeting
 from app.domain.meeting.schemas import (
     MeetingCreate,
     MeetingDetailResponse,
     MeetingParticipantResponse,
     MeetingResponse,
-    MeetingSeriesCreateRequest,
-    MeetingSeriesResponse,
-    MeetingSeriesUpdateRequest,
     MeetingUpdate,
     ParticipantStatusUpdateRequest,
 )
 from app.domain.meeting.usecases import (
     ApproveParticipantUseCaseDep,
     CreateMeetingUseCaseDep,
-    CreateSeriesUseCaseDep,
     DeleteMeetingUseCaseDep,
-    DeleteSeriesUseCaseDep,
     GetMeetingUseCaseDep,
-    GetSeriesUseCaseDep,
     JoinMeetingUseCaseDep,
     LeaveMeetingUseCaseDep,
     ListMeetingsByHostUseCaseDep,
     ListMeetingsByParticipantUseCaseDep,
     ListMeetingsUseCaseDep,
-    ListSeriesByHostUseCaseDep,
     RejectParticipantUseCaseDep,
     UpdateMeetingUseCaseDep,
-    UpdateSeriesUseCaseDep,
 )
 
 router = APIRouter(prefix="/meetings", tags=["Meetings"])
 
 
 def _to_response(meeting: Meeting) -> MeetingResponse:
+    current = len(meeting.participants)
     return MeetingResponse.model_validate(
         {
             "id": meeting.id,
@@ -55,7 +53,8 @@ def _to_response(meeting: Meeting) -> MeetingResponse:
             "meeting_time": meeting.meeting_time,
             "goal": meeting.goal,
             "max_participants": meeting.max_participants,
-            "current_participants": len(meeting.participants),
+            "current_participants": current,
+            "is_full": current >= meeting.max_participants,
             "description": meeting.description,
             "is_recurring": meeting.is_recurring,
             "status": meeting.status,
@@ -75,104 +74,6 @@ def _to_detail_response(meeting: Meeting) -> MeetingDetailResponse:
     return MeetingDetailResponse.model_validate(base)
 
 
-def _to_series_response(series: MeetingSeries) -> MeetingSeriesResponse:
-    return MeetingSeriesResponse.model_validate(
-        {
-            "id": series.id,
-            "title": series.title,
-            "description": series.description,
-            "mode": series.mode,
-            "region": series.region,
-            "location_name": series.location_name,
-            "location_address": series.location_address,
-            "goal": series.goal,
-            "max_participants": series.max_participants,
-            "frequency": series.frequency,
-            "start_date": series.start_date,
-            "end_date": series.end_date,
-            "meeting_time": series.meeting_time,
-            "is_active": series.is_active,
-            "host": series.host,
-            "created_at": series.created_at,
-            "updated_at": series.updated_at,
-        }
-    )
-
-
-# ========== Series endpoints (상위 경로 충돌 방지 위해 /{meeting_id} 이전에 선언) ==========
-
-
-@router.post(
-    "/series",
-    response_model=MeetingSeriesResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="정기 모임 시리즈 생성",
-)
-async def create_series(
-    data: MeetingSeriesCreateRequest,
-    current_user: CurrentUserDep,
-    use_case: CreateSeriesUseCaseDep,
-) -> MeetingSeriesResponse:
-    series = await use_case.execute(current_user.id, data)
-    return _to_series_response(series)
-
-
-@router.get(
-    "/series",
-    response_model=list[MeetingSeriesResponse],
-    summary="호스트별 정기 모임 시리즈 목록",
-)
-async def list_series(
-    host_id: str,
-    use_case: ListSeriesByHostUseCaseDep,
-    offset: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-) -> list[MeetingSeriesResponse]:
-    rows = await use_case.execute(host_id, offset=offset, limit=limit)
-    return [_to_series_response(s) for s in rows]
-
-
-@router.get(
-    "/series/{series_id}",
-    response_model=MeetingSeriesResponse,
-    summary="정기 모임 시리즈 단건 조회",
-)
-async def get_series(
-    series_id: str,
-    use_case: GetSeriesUseCaseDep,
-) -> MeetingSeriesResponse:
-    series = await use_case.execute(series_id)
-    return _to_series_response(series)
-
-
-@router.patch(
-    "/series/{series_id}",
-    response_model=MeetingSeriesResponse,
-    summary="정기 모임 시리즈 수정 (호스트 전용)",
-)
-async def update_series(
-    series_id: str,
-    data: MeetingSeriesUpdateRequest,
-    current_user: CurrentUserDep,
-    use_case: UpdateSeriesUseCaseDep,
-) -> MeetingSeriesResponse:
-    series = await use_case.execute(series_id, current_user.id, data)
-    return _to_series_response(series)
-
-
-@router.delete(
-    "/series/{series_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="정기 모임 시리즈 삭제 (호스트 전용)",
-)
-async def delete_series(
-    series_id: str,
-    current_user: CurrentUserDep,
-    use_case: DeleteSeriesUseCaseDep,
-) -> None:
-    await use_case.execute(series_id, current_user.id)
-
-
 # ========== Meeting endpoints ==========
 
 
@@ -180,7 +81,7 @@ async def delete_series(
     "/",
     response_model=MeetingResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="모임 개설",
+    summary="모임 개설 (is_recurring=true 시 Series 자동 생성)",
 )
 async def create_meeting(
     data: MeetingCreate,

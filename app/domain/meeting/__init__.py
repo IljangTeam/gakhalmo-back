@@ -14,12 +14,10 @@ from app.domain.meeting.schemas import (
     MeetingDetailResponse,
     MeetingParticipantResponse,
     MeetingResponse,
-    MeetingSeriesCreateRequest,
-    MeetingSeriesResponse,
-    MeetingSeriesUpdateRequest,
     MeetingUpdate,
     ParticipantResponse,
     ParticipantStatusUpdateRequest,
+    RecurrenceData,
 )
 from app.domain.meeting.service import MeetingSeriesService, MeetingService
 
@@ -33,16 +31,14 @@ __all__ = [
     "MeetingParticipantResponse",
     "MeetingResponse",
     "MeetingSeries",
-    "MeetingSeriesCreateRequest",
-    "MeetingSeriesResponse",
     "MeetingSeriesService",
-    "MeetingSeriesUpdateRequest",
     "MeetingService",
     "MeetingStatus",
     "MeetingUpdate",
     "ParticipantResponse",
     "ParticipantStatus",
     "ParticipantStatusUpdateRequest",
+    "RecurrenceData",
     "RecurrenceFrequency",
     "router",
 ]

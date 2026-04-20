@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from ulid import ULID
@@ -45,6 +45,14 @@ class User(Base):
     )
     bio: Mapped[str | None] = mapped_column(
         Text,
+        nullable=True,
+    )
+    job: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    tags: Mapped[list[str] | None] = mapped_column(
+        JSON,
         nullable=True,
     )
 

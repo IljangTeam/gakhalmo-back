@@ -35,3 +35,7 @@ htmlcov/
 .claude
 CLAUDE.md
 claudedocs
+
+# Local scratch / screenshots
+.playwright-mcp/
+temp-front-*.png

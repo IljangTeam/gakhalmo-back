@@ -27,6 +27,19 @@ async def search_regions(
 
 
 @router.get(
+    "/popular",
+    response_model=list[RegionSummary],
+    summary="프리셋 지역 목록 (홈 피드/개설 폼용)",
+)
+async def list_popular_regions(
+    session: AsyncSessionDep,
+) -> list[RegionSummary]:
+    service = RegionService(session)
+    regions = await service.list_popular()
+    return [RegionSummary.model_validate(r) for r in regions]
+
+
+@router.get(
     "/{region_id}",
     response_model=RegionResponse,
     summary="지역 단건 조회",
