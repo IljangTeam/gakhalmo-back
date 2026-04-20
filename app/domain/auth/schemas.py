@@ -53,6 +53,10 @@ class UpdateMeRequest(BaseModel):
         None,
         description="관심 태그 배열. None 이면 미변경, [] 이면 전체 제거",
     )
+    notification_prefs: dict | None = Field(
+        None,
+        description="알림 설정 key→bool 맵. None=미변경, {}=전체 초기화",
+    )
 
 
 class MeResponse(BaseModel):
@@ -65,6 +69,7 @@ class MeResponse(BaseModel):
     bio: str | None = None
     job: str | None = None
     tags: list[str] | None = None
+    notification_prefs: dict | None = None
     is_active: bool
 
     model_config = ConfigDict(from_attributes=True)

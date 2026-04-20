@@ -15,8 +15,12 @@ from app.core.database import Base
 
 # 모델 임포트 — Base.metadata에 모든 테이블이 등록되도록 강제
 from app.domain.auth import models as _auth_models  # noqa: F401
+from app.domain.chat import models as _chat_models  # noqa: F401
+from app.domain.connection import models as _connection_models  # noqa: F401
 from app.domain.meeting import models as _meeting_models  # noqa: F401
+from app.domain.notification import models as _notification_models  # noqa: F401
 from app.domain.regions import models as _regions_models  # noqa: F401
+from app.domain.review import models as _review_models  # noqa: F401
 from app.domain.user import models as _user_models  # noqa: F401
 
 config = context.config

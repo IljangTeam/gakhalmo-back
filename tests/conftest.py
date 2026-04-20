@@ -41,6 +41,10 @@ from app.core.database import Base, get_async_session  # noqa: E402
 from app.domain.regions import models as _regions_models  # noqa: F401,E402 — register tables
 from app.domain.user import models as _user_models  # noqa: F401,E402 — register tables
 from app.domain.meeting import models as _meeting_models  # noqa: F401,E402 — register tables
+from app.domain.notification import models as _notification_models  # noqa: F401,E402
+from app.domain.review import models as _review_models  # noqa: F401,E402
+from app.domain.connection import models as _connection_models  # noqa: F401,E402
+from app.domain.chat import models as _chat_models  # noqa: F401,E402
 from app.main import app  # noqa: E402
 
 logger = logging.getLogger(__name__)

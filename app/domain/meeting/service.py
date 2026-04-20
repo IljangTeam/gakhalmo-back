@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,9 @@ from app.domain.meeting.repository import (
     MeetingSeriesRepository,
     next_occurrences,
 )
+
+# 모임 시작 24시간 전 이내에는 참여 취소 불가 — 노쇼 방지 정책.
+LEAVE_CUTOFF_HOURS = 24
 
 
 class MeetingService:
@@ -167,10 +170,32 @@ class MeetingService:
 
         await self.session.commit()
         await self.session.refresh(participant)
+
+        # 호스트에게 참여 요청 알림.
+        try:
+            from app.domain.notification.enums import NotificationType
+            from app.domain.notification.service import NotificationService
+
+            await NotificationService(self.session).create(
+                user_id=meeting.host_id,
+                type=NotificationType.PARTICIPANT_PENDING,
+                payload={
+                    "meeting_id": meeting.id,
+                    "meeting_title": meeting.title,
+                    "participant_id": participant.id,
+                    "user_id": user_id,
+                },
+            )
+        except Exception:
+            pass
+
         return participant
 
     async def leave(self, meeting_id: str, user_id: str) -> None:
-        """탈퇴 처리 (호스트는 탈퇴 불가)."""
+        """탈퇴 처리 (호스트는 탈퇴 불가).
+
+        시작 24시간 전 이내에는 탈퇴 차단 — 노쇼 방지 정책.
+        """
         try:
             meeting = await self.get_by_id_for_update(meeting_id)
 
@@ -179,16 +204,48 @@ class MeetingService:
                     detail="호스트는 모임을 떠날 수 없습니다. 모임을 삭제하거나 상태를 변경하세요."
                 )
 
+            # 24h time-guard — 시작 시각 - 현재 < 24h 이면 취소 불가.
+            meeting_dt = datetime.combine(
+                meeting.meeting_date, meeting.meeting_time, tzinfo=UTC
+            )
+            if meeting_dt - datetime.now(UTC) < timedelta(hours=LEAVE_CUTOFF_HOURS):
+                raise ForbiddenError(
+                    detail=(
+                        f"모임 시작 {LEAVE_CUTOFF_HOURS}시간 이내에는 참여 취소가 불가능합니다. "
+                        "호스트에게 문의해 주세요."
+                    )
+                )
+
             participant = await self.repository.get_participant(meeting.id, user_id)
             if participant is None:
                 raise NotFoundError(detail="참여 정보를 찾을 수 없습니다.")
 
+            was_approved = participant.status is ParticipantStatus.APPROVED
             await self.repository.remove_participant(participant)
         except Exception:
             await self.session.rollback()
             raise
 
         await self.session.commit()
+
+        # 호스트에게 탈퇴 알림 — 이벤트 훅. 실패해도 본 흐름엔 영향 없음.
+        # (늦은 커밋 이후라 트랜잭션 롤백 위험 없음)
+        try:
+            from app.domain.notification.enums import NotificationType
+            from app.domain.notification.service import NotificationService
+
+            await NotificationService(self.session).create(
+                user_id=meeting.host_id,
+                type=NotificationType.PARTICIPANT_LEFT,
+                payload={
+                    "meeting_id": meeting.id,
+                    "user_id": user_id,
+                    "was_approved": was_approved,
+                },
+            )
+        except Exception:
+            # 알림 실패가 탈퇴 자체를 뒤엎어서는 안 된다.
+            pass
 
     # ========== 승인/거절 ==========
 
@@ -232,6 +289,31 @@ class MeetingService:
 
         await self.session.commit()
         await self.session.refresh(participant)
+
+        # 승인 알림 + 채팅방 세팅 이벤트 훅.
+        try:
+            from app.domain.chat.service import ChatService
+            from app.domain.notification.enums import NotificationType
+            from app.domain.notification.service import NotificationService
+
+            await NotificationService(self.session).create(
+                user_id=participant.user_id,
+                type=NotificationType.PARTICIPANT_APPROVED,
+                payload={
+                    "meeting_id": meeting.id,
+                    "meeting_title": meeting.title,
+                },
+            )
+
+            # 채팅방: 처음 승인 시점에 room + host 가 생성되고,
+            # 이번 승인된 참여자가 즉시 등록된다 (호스트도 idempotent).
+            chat_svc = ChatService(self.session)
+            room = await chat_svc.ensure_room_for_meeting(meeting.id)
+            await chat_svc.ensure_participant(room.id, meeting.host_id)
+            await chat_svc.ensure_participant(room.id, participant.user_id)
+        except Exception:
+            pass
+
         return participant
 
     async def reject_participant(
@@ -261,6 +343,23 @@ class MeetingService:
 
         await self.session.commit()
         await self.session.refresh(participant)
+
+        # 거절 알림.
+        try:
+            from app.domain.notification.enums import NotificationType
+            from app.domain.notification.service import NotificationService
+
+            await NotificationService(self.session).create(
+                user_id=participant.user_id,
+                type=NotificationType.PARTICIPANT_REJECTED,
+                payload={
+                    "meeting_id": meeting.id,
+                    "meeting_title": meeting.title,
+                },
+            )
+        except Exception:
+            pass
+
         return participant
 
 

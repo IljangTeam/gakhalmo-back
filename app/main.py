@@ -9,9 +9,14 @@ from app.config.settings import get_settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging import RequestIdMiddleware, configure_logging
 from app.domain.auth.router import router as auth_router
+from app.domain.chat.router import router as chat_router
+from app.domain.chat.ws_router import router as ws_router
+from app.domain.connection.router import router as connection_router
 from app.domain.meeting.router import router as meeting_router
+from app.domain.notification.router import router as notification_router
 from app.domain.regions.router import router as regions_router
 from app.domain.regions.seed import seed_regions
+from app.domain.review.router import router as review_router
 from app.domain.user.router import router as user_router
 
 settings = get_settings()
@@ -55,6 +60,11 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(user_router, prefix="/api/v1")
 app.include_router(regions_router, prefix="/api/v1")
 app.include_router(meeting_router, prefix="/api/v1")
+app.include_router(notification_router, prefix="/api/v1")
+app.include_router(review_router, prefix="/api/v1")
+app.include_router(connection_router, prefix="/api/v1")
+app.include_router(chat_router, prefix="/api/v1")
+app.include_router(ws_router, prefix="/api/v1")
 
 
 @app.get("/")

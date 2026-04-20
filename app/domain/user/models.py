@@ -55,6 +55,10 @@ class User(Base):
         JSON,
         nullable=True,
     )
+    notification_prefs: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
 
     # 인증: 로컬 로그인 해시 (OAuth-only 유저는 NULL)
     password_hash: Mapped[str | None] = mapped_column(
